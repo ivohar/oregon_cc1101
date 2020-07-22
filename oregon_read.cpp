@@ -511,6 +511,7 @@ void init_inst_struct(struct INSTANCE *is, int clear_all)
 		is->max_intvl = 0;
 		is->rssi_sum = 0;
 		is->lqi_sum = 0;
+		is->lqi_max = 0;
 		is->brst1_errors = 0;
 		is->brst2_errors = 0;
 		is->pktlen_errors = 0;
