@@ -71,7 +71,7 @@ uint8_t rx_fifo1[FIFOBUFFER], rx_fifo2[FIFOBUFFER];
 uint8_t pktlen1, pktlen2;
 uint8_t lqi1,lqi2;
 int8_t rssi_dbm1,rssi_dbm2;
-unsigned int uCurrTime, uOldTime, uIntvl_s;
+unsigned int uCurrTime, uOldTime, uPrevTime, uIntvl_s;
 double last_temp_reading;
 
 
@@ -217,7 +217,13 @@ int main(int argc, char *argv[])
 
 void update_global_stats(struct INSTANCE *is)
 {
-	  uIntvl_s = (uCurrTime - uOldTime)/1000 + ((uCurrTime - uOldTime) % 1000)/500;
+	  unsigned int uDiffTime;
+	  if (uCurrTime < uPrevTime)
+		  uDiffTime = uCurrTime + ~uPrevTime + 1;
+	  else
+		  uDiffTime = uCurrTime - uPrevTime;
+	  uIntvl_s = uDiffTime/1000 + (uDiffTime % 1000)/500;
+	  uPrevTime = uCurrTime;
 	  // update time intervals only after the second reception
 	  if (is->good_reads > 1) {
 		  is->min_intvl = MIN(is->min_intvl, uIntvl_s);
@@ -241,7 +247,7 @@ void do_main_cycle()
 	uint8_t *rx_fifo;
 	unsigned int uDiffTime;
 
-	uOldTime = millis();
+	uPrevTime = uOldTime = millis();
 	add_delay = ADDITIONAL_DELAY_MS;
 	first_iter = 1;
 	burst_mnum = 0;
