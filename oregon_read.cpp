@@ -37,21 +37,23 @@
 #define PARANOID_NEEDS_BOTH_MESSAGES	0
 
 #define PACKAGE    "CC1101 Oregon read utility"
-#define VERSION_SW "1.3"
+#define VERSION_SW "1.4"
 
-#define OPTCHARS		"d::hobVrKt"
+#define OPTCHARS		"d::hobVrKtn:"
 #define ARG_o			1
 #define ARG_b			(1<<1)
 #define ARG_t			(1<<2)
 #define ARG_V			(1<<3)
 #define ARG_K			(1<<4)
 #define ARG_r			(1<<5)
+#define ARG_n			(1<<6)
 
 #define SKIP_LOG_COUNT	50  // determines frequency of log updates
 #define ADDITIONAL_DELAY_MS	100
 #define SHORT_DELAY_MS	5
 #define MSG_TIMEOUT_MS	1000
-#define OREGON_DATA_TIMEOUT_S	210
+#define OREGON_DATA_TIMEOUT_S	300
+#define OREGON_DATA_MIN_TIMEOUT_S	60
 #define LINELEN 	        256
 #define SUCCESS                  1
 #define FATALERR		-1
@@ -69,7 +71,7 @@ uint8_t rx_fifo1[FIFOBUFFER], rx_fifo2[FIFOBUFFER];
 uint8_t pktlen1, pktlen2;
 uint8_t lqi1,lqi2;
 int8_t rssi_dbm1,rssi_dbm2;
-long lNewTime, lOldTime, lIntvl_s;
+unsigned int uCurrTime, uOldTime, uIntvl_s;
 double last_temp_reading;
 
 
@@ -84,6 +86,7 @@ int	show_verbose		=	0;
 int	test_mode		=	0;
 int	clear_stats		=	0;
 int	reset_stats		=	0;
+int data_invalid_timeout = OREGON_DATA_TIMEOUT_S;
 
 int	keep_running		=	1;
 void	*shmaddr		=	NULL;
@@ -95,13 +98,14 @@ char    strbuf[LINELEN];
 
 struct INSTANCE {
 	int	pid;
+	int data_invalid_timeout;
 	oregon_data_t oregon_data;
 	time_t	last_upd_time; // last time data has been received from oregon sensor
 	// statistics
 	unsigned long total_reads;
 	unsigned long good_reads;
 	unsigned int  min_intvl, max_intvl;
-	unsigned int brst1_errors, brst2_errors, pktlen_errors, buffmatch_errors, chksum_errors;
+	unsigned int brst1_errors, brst2_errors, mbrst_errors, pktlen_errors, buffmatch_errors, chksum_errors;
 	double max_temp_diff;
 	long	rssi_sum;
 	unsigned long	lqi_sum;
@@ -136,7 +140,7 @@ void Usage()
 	fprintf(stderr, "[ -o][ -b][ -V]");
 	fprintf(stderr, "[ -r][ -K][ -t [ -d[num]]][ -h]");
 	fprintf(stderr, "\n\n%s, Version %s by Ivaylo Haratcherev\n", PACKAGE, VERSION_SW);
-	fprintf(stderr, "Run without options (as root) to start the listening daemon.\n");
+	fprintf(stderr, "Run without options or with -n (as root) to start the listening daemon.\n");
 	fprintf(stderr, "Options: \n");
 	fprintf(stderr, "         -o               show last Oregon data collected from daemon\n");
 	fprintf(stderr, "         -b               show only temperature in bare format\n");
@@ -144,7 +148,8 @@ void Usage()
 	fprintf(stderr, "         -r               reset daemon statistics counters (needs root)\n");
 	fprintf(stderr, "         -K               terminate daemon instance (needs root)\n");
 	fprintf(stderr, "         -t               test mode - Rx Oregon data is displayed as received (needs root)\n");
-    fprintf(stderr, "         -d[num]          set optional debug level num (default 1) for test mode\n");
+    fprintf(stderr, "         -d[num]          optional debug level num (default 1) for test mode\n");
+    fprintf(stderr, "         -n[num]          optional data invalid timeout (default %d) - daemon only\n", OREGON_DATA_TIMEOUT_S);
 	fprintf(stderr, "         -h               help (this text)\n");
 }
 
@@ -212,12 +217,11 @@ int main(int argc, char *argv[])
 
 void update_global_stats(struct INSTANCE *is)
 {
-	  lIntvl_s = (lNewTime - lOldTime)/1000 + ((lNewTime - lOldTime) % 1000)/500;
-	  lOldTime = lNewTime;
+	  uIntvl_s = (uCurrTime - uOldTime)/1000 + ((uCurrTime - uOldTime) % 1000)/500;
 	  // update time intervals only after the second reception
 	  if (is->good_reads > 1) {
-		  is->min_intvl = MIN(is->min_intvl, lIntvl_s);
-		  is->max_intvl = MAX(is->max_intvl, lIntvl_s);
+		  is->min_intvl = MIN(is->min_intvl, uIntvl_s);
+		  is->max_intvl = MAX(is->max_intvl, uIntvl_s);
 		  is->max_temp_diff = MAX(ABS(is->oregon_data.temperature-last_temp_reading), is->max_temp_diff);
 	  }
 	  is->rssi_sum += (rssi_dbm1 + rssi_dbm2)/2;
@@ -235,8 +239,9 @@ void do_main_cycle()
 	int add_delay, first_iter, buffdiff;
 	uint8_t res1, res2, pktlen, burst_mnum;
 	uint8_t *rx_fifo;
+	unsigned int uDiffTime;
 
-	lNewTime = millis() + MSG_TIMEOUT_MS;
+	uOldTime = millis();
 	add_delay = ADDITIONAL_DELAY_MS;
 	first_iter = 1;
 	burst_mnum = 0;
@@ -249,9 +254,14 @@ void do_main_cycle()
 		delay(SHORT_DELAY_MS+add_delay);                            //delay to reduce system load
 		if (cc1101_oregon.packet_available())		 //checks if a packet is available
 		{
-		  if ( millis() > lNewTime )
+		  uCurrTime = millis();
+		  if (uCurrTime < uOldTime)
+			  uDiffTime = uCurrTime + ~uOldTime + 1;
+		  else
+			  uDiffTime = uCurrTime - uOldTime;
+		  if ( uDiffTime > MSG_TIMEOUT_MS )
 		  {
-			  lNewTime = millis() + MSG_TIMEOUT_MS;
+			  uOldTime = uCurrTime;
 			  add_delay = 0;
 			  burst_mnum = 0;
 		  } else {
@@ -264,11 +274,13 @@ void do_main_cycle()
 			  // get first message of a burst into the first rx buffer
 			  // or get any 3rd and + spurious message of a burst, just to clear cc1101 buffer
 			  res1 = cc1101_oregon.get_oregon_raw(rx_fifo1, pktlen1, rssi_dbm1, lqi1);
+			  if (burst_mnum > 1)
+				  my_instance->mbrst_errors++;
 		  } else {
 			  // receive the second message of a burst into the second rx buffer
 			  res2 = cc1101_oregon.get_oregon_raw(rx_fifo2, pktlen2, rssi_dbm2, lqi2);
 			  if (test_mode)
-				  Msg("Rx @ %ld.%d s:", lNewTime/1000,lNewTime % 1000);
+				  Msg("Rx @ %ld.%d s:", uCurrTime/1000,uCurrTime % 1000);
 			  if (debug_level > 1)
 				  Msg("res1 %d  res2 %d  pktlen1 %u  pktlen2 %u", res1, res2, pktlen1, pktlen2);
 			  // pre-set checksum flag for the counters
@@ -389,6 +401,10 @@ void process_options(int argc, char *argv[])
 			test_mode = 1;
 			have_args |= ARG_t;
 			break;
+		case 'n':
+			data_invalid_timeout = MAX(atoi(optarg),OREGON_DATA_MIN_TIMEOUT_S);
+			have_args |= ARG_n;
+			break;
 		default:
 			Usage();
 			exit(0);
@@ -474,7 +490,8 @@ void disp_rx_stats(struct INSTANCE *is)
 {
 	Msg("Bad/Total received Oregon packets:           %lu / %lu", is->total_reads - is->good_reads, is->total_reads);
 //	if (is->good_reads < is->total_reads)
-	Msg("Errors: brst1/brst2/pktlen/bfmatch/chksum:   %u / %u / %u / %u / %u", is->brst1_errors, is->brst2_errors, is->pktlen_errors, is->buffmatch_errors, is->chksum_errors);
+	Msg("Errors: brst1 / brst2 / mburst:              %u / %u / %u", is->brst1_errors, is->brst2_errors, is->mbrst_errors);
+	Msg("Errors: pktlen / bfmatch / chksum:           %u / %u / %u", is->pktlen_errors, is->buffmatch_errors, is->chksum_errors);
 	if (is->good_reads > 1) {
 		Msg("Min/Max time between good packets [s]:       %u / %u", is->min_intvl, is->max_intvl);
 		Msg("Max T variation between updates [degC]:      %.1f", is->max_temp_diff);
@@ -514,6 +531,7 @@ void init_inst_struct(struct INSTANCE *is, int clear_all)
 		is->lqi_max = 0;
 		is->brst1_errors = 0;
 		is->brst2_errors = 0;
+		is->mbrst_errors = 0;
 		is->pktlen_errors = 0;
 		is->buffmatch_errors = 0;
 		is->chksum_errors = 0;
@@ -575,6 +593,7 @@ int get_shm_info()
 	my_instance = (struct INSTANCE *)shmaddr;
 	init_inst_struct(my_instance, 1);
 	my_instance->pid = getpid();
+	my_instance->data_invalid_timeout = data_invalid_timeout;
 	return SUCCESS;
 }
 /////////////////////////////////////////////////////////////////////////
@@ -646,7 +665,7 @@ void interact_with_daemon()
 				{
 					Msg("\nDaemon process active: %d",
 						is->pid);
-					Msg("Timeout for Oregon data to be claimed invalid: %d s", OREGON_DATA_TIMEOUT_S);
+					Msg("Timeout for Oregon data to be claimed invalid: %d s", is->data_invalid_timeout);
 					Msg("");
 					if (is->last_upd_time > 0) {
 						if (is->good_reads > 0) {
@@ -655,7 +674,7 @@ void interact_with_daemon()
 						}
 						Msg("=== Last update ==");
 						disp_oregon_data(is, 1);
-						if (curr_time - is->last_upd_time >= OREGON_DATA_TIMEOUT_S)
+						if (curr_time - is->last_upd_time >= is->data_invalid_timeout)
 							Msg("Warning: The update is too old!");
 					}
 					else
@@ -670,7 +689,7 @@ void interact_with_daemon()
 						} else
 							printf("No data yet!\n");
 					}
-					if (curr_time - is->last_upd_time < OREGON_DATA_TIMEOUT_S) {
+					if (curr_time - is->last_upd_time < is->data_invalid_timeout) {
 						if (bare_temp)
 							printf("%.1f\n", is->oregon_data.temperature);
 					} else {
