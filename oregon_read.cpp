@@ -37,7 +37,7 @@
 #define PARANOID_NEEDS_BOTH_MESSAGES	0
 
 #define PACKAGE    "CC1101 Oregon read utility"
-#define VERSION_SW "1.4"
+#define VERSION_SW "1.42"
 
 #define OPTCHARS		"d::hobVrKtn:"
 #define ARG_o			1
@@ -296,7 +296,7 @@ void do_main_cycle()
 			  if (res1 && res2) {
 				  pktlen = MIN(pktlen1, pktlen2);
 				  rx_fifo = rx_fifo2;
-				  buffdiff = memcmp(rx_fifo1, rx_fifo2, pktlen);
+				  buffdiff = memcmp(rx_fifo1, rx_fifo2, MIN(pktlen, THN122N_PKTLEN_USED_DECODE)); // Note: compare only decoded part
 			  }
 			  else {
 				  pktlen = ((res1)?pktlen1:pktlen2);

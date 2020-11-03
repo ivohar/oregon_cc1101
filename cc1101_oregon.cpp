@@ -440,7 +440,7 @@ uint8_t CC1101_Oregon::get_oregon_raw(uint8_t rxbuffer[], uint8_t &pktlen, int8_
     		return FALSE;
     	}
             rssi_dbm = rssi_convert(rxbuffer[pktlen-2]); //converts receiver strength to dBm
-            lqi = lqi_convert(rxbuffer[pktlen-1]);       //get rf quialtiy indicator
+            lqi = lqi_convert(rxbuffer[pktlen-1]);       //get rf quality indicator
             pktlen -= 2; //compensate for rssi and lqi
 
             if(debug_level > 1) {                           //debug output messages

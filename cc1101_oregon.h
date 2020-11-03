@@ -150,6 +150,8 @@
 // ------- fine tuning of probe packets sync and decoding -------
 
 #define THN122N_MIN_PKTLEN_FOR_DECODE 8
+// what is used currently as data after decoding
+#define THN122N_PKTLEN_USED_DECODE (THN122N_MIN_PKTLEN_FOR_DECODE-1)
 
 #define THN122N_CHECK_CC_IN_BUF	0
 
