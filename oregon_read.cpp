@@ -37,7 +37,7 @@
 #define PARANOID_NEEDS_BOTH_MESSAGES	0
 
 #define PACKAGE    "CC1101 Oregon read utility"
-#define VERSION_SW "1.42"
+#define VERSION_SW "1.43"
 
 #define OPTCHARS		"d::hobVrKtn:"
 #define ARG_o			1
@@ -325,8 +325,8 @@ void do_main_cycle()
 					  Msg("=== Rx stats ====");
 					  disp_rx_stats(my_instance);
 				  } else {
-					  if (test_mode || ((my_instance->total_reads % SKIP_LOG_COUNT) == 1))
-					  Msg("Oregon pkt (bad/all) # %lu / %lu ", my_instance->total_reads - my_instance->good_reads, my_instance->total_reads);
+					  if (test_mode && ((my_instance->total_reads % SKIP_LOG_COUNT) == 1))
+						  Msg("Oregon pkt (bad/all) # %lu / %lu ", my_instance->total_reads - my_instance->good_reads, my_instance->total_reads);
 				  }
 				  my_instance->last_upd_time = time(NULL);
 				  if (test_mode) {
