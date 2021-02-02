@@ -37,9 +37,9 @@
 #define PARANOID_NEEDS_BOTH_MESSAGES	0
 
 #define PACKAGE    "CC1101 Oregon read utility"
-#define VERSION_SW "1.43"
+#define VERSION_SW "1.51"
 
-#define OPTCHARS		"d::hobVrKtn:"
+#define OPTCHARS		"d::hobVr::Ktn:"
 #define ARG_o			1
 #define ARG_b			(1<<1)
 #define ARG_t			(1<<2)
@@ -66,6 +66,7 @@
 #define ABS(a) ( (a) < 0 ? (-(a)) : (a) )
 
 
+
 //--------------------------[Global CC1101 variables]--------------------------
 uint8_t rx_fifo1[FIFOBUFFER], rx_fifo2[FIFOBUFFER];
 uint8_t pktlen1, pktlen2;
@@ -86,6 +87,7 @@ int	show_verbose		=	0;
 int	test_mode		=	0;
 int	clear_stats		=	0;
 int	reset_stats		=	0;
+long	reset_flags		=	0xff;
 int data_invalid_timeout = OREGON_DATA_TIMEOUT_S;
 
 int	keep_running		=	1;
@@ -95,6 +97,9 @@ int	shmid			=	0;
 
 struct	sigaction sig;
 char    strbuf[LINELEN];
+
+//-------------------------- [End] --------------------------
+///////////////////////////////////////////////////////////////////////////
 
 struct INSTANCE {
 	int	pid;
@@ -111,6 +116,7 @@ struct INSTANCE {
 	unsigned long	lqi_sum;
 	uint8_t lqi_max, lqi_min;
 	int8_t rssi_max, rssi_min;
+	long	reset_flags;
 } *my_instance = NULL;
 
 void    update_global_stats(struct INSTANCE *is);
@@ -132,20 +138,26 @@ int		run_as_background();
 void	Msg(const char *fmt, ...);
 char   *nol_ctime(const time_t *timep);
 
-//-------------------------- [End] --------------------------
-///////////////////////////////////////////////////////////////////////////
+
 void Usage()
 {
 	fprintf(stderr,  "\nUSAGE: %s ", program);
-	fprintf(stderr, "[ -o][ -b][ -V]");
-	fprintf(stderr, "[ -r][ -K][ -t [ -d[num]]][ -h]");
+	fprintf(stderr, "[ -o][ -b][ -V][ -r[flags]]");
+	fprintf(stderr, "[ -K][ -t [ -d[num]]][ -n[num]][ -h]");
 	fprintf(stderr, "\n\n%s, Version %s by Ivaylo Haratcherev\n", PACKAGE, VERSION_SW);
 	fprintf(stderr, "Run without options or with -n (as root) to start the listening daemon.\n");
 	fprintf(stderr, "Options: \n");
 	fprintf(stderr, "         -o               show last Oregon data collected from daemon\n");
 	fprintf(stderr, "         -b               show only temperature in bare format\n");
 	fprintf(stderr, "         -V               show daemon info + verbose Rx stats and Oregon data\n");
-	fprintf(stderr, "         -r               reset daemon statistics counters (needs root)\n");
+	fprintf(stderr, "         -r[flags]        reset daemon statistics counters (needs root)\n");
+	fprintf(stderr, "                          optional flags in binary form indicate \n");
+	fprintf(stderr, "                          stats to clear (LSB to MSB):\n");
+	fprintf(stderr, "                             bit 0 - bad packets and errors count + all RSSI and LQI stats\n");
+	fprintf(stderr, "                             bit 1 - min/max time between good packets\n");
+	fprintf(stderr, "                             bit 2 - min/max RSSI\n");
+	fprintf(stderr, "                             bit 3 - min/max LQI\n");
+	fprintf(stderr, "                             bit 4 - max Temperature value variation\n");
 	fprintf(stderr, "         -K               terminate daemon instance (needs root)\n");
 	fprintf(stderr, "         -t               test mode - Rx Oregon data is displayed as received (needs root)\n");
     fprintf(stderr, "         -d[num]          optional debug level num (default 1) for test mode\n");
@@ -397,6 +409,10 @@ void process_options(int argc, char *argv[])
 			break;
 		case 'r':
 			reset_stats = 1;
+			if (optarg != NULL)
+				reset_flags = strtol(optarg, NULL, 2);
+			else
+				reset_flags = 0xff;
 			have_args |= ARG_r;
 			break;
         case 'K':
@@ -503,8 +519,10 @@ void disp_rx_stats(struct INSTANCE *is)
 		Msg("Max T variation between updates [degC]:      %.1f", is->max_temp_diff);
 	}
 	if (is->good_reads > 0) {
-		Msg("Min/Average/Max RSSI (good packets) [dBm]:  %d / %ld / %d", is->rssi_min, is->rssi_sum / (long)is->good_reads, is->rssi_max);
-		Msg("Max/Average/Min LQI (good packets):          %u / %lu / %u", is->lqi_max, is->lqi_sum / is->good_reads, is->lqi_min);
+		if (is->rssi_max >= is->rssi_min)
+			Msg("Min/Average/Max RSSI (good packets) [dBm]:  %d / %ld / %d", is->rssi_min, is->rssi_sum / (long)is->good_reads, is->rssi_max);
+		if (is->lqi_max >= is->lqi_min)
+			Msg("Max/Average/Min LQI (good packets):          %u / %lu / %u", is->lqi_max, is->lqi_sum / is->good_reads, is->lqi_min);
 	}
 }
 
@@ -529,25 +547,37 @@ void init_inst_struct(struct INSTANCE *is, int clear_all)
 	if (clear_all)
 		memset((char *) is, 0, sizeof(is));
 	else {
-		is->total_reads = 0;
-		is->good_reads = 0;
-		is->max_intvl = 0;
-		is->rssi_sum = 0;
-		is->lqi_sum = 0;
-		is->lqi_max = 0;
-		is->brst1_errors = 0;
-		is->brst2_errors = 0;
-		is->mbrst_errors = 0;
-		is->pktlen_errors = 0;
-		is->buffmatch_errors = 0;
-		is->chksum_errors = 0;
-		is->max_temp_diff = 0;
+		if (is->reset_flags == 0xff) {
+			is->total_reads = 0;
+			is->rssi_sum = 0;
+			is->lqi_sum = 0;
+		}
+		if (is->reset_flags & 0x1) {
+			is->good_reads = is->total_reads;
+			is->brst1_errors = 0;
+			is->brst2_errors = 0;
+			is->mbrst_errors = 0;
+			is->pktlen_errors = 0;
+			is->buffmatch_errors = 0;
+			is->chksum_errors = 0;
+			is->reset_flags |= 0x4 | 0x8;
+		}
+		if (is->reset_flags & 0x2)
+			is->max_intvl = 0;
+		if (is->reset_flags & 0x8)
+			is->lqi_max = 0;
+		if (is->reset_flags & 0x10)
+			is->max_temp_diff = 0;
 	}
-	is->min_intvl = 0xffff;
-	is->lqi_min = 127;
-	is->rssi_max = -128;
-	is->rssi_min = 127;
-
+	if ((is->reset_flags & 0x2) || clear_all)
+		is->min_intvl = 0xffff;
+	if ((is->reset_flags & 0x8) || clear_all)
+		is->lqi_min = 127;
+	if ((is->reset_flags & 0x4) || clear_all) {
+		is->rssi_max = -128;
+		is->rssi_min = 127;
+	}
+	is->reset_flags = 0xff;
 }
 
 void init_HW()
@@ -644,7 +674,7 @@ void interact_with_daemon()
 	time_t curr_time;
 
 	if ((shmid = shmget(OREAD_KEY, SHMEM_SIZE, 0)) != -1) {
-	    flag = (kill_proc ? 0 : SHM_RDONLY);
+	    flag = ((kill_proc || reset_stats) ? 0 : SHM_RDONLY);
 	    if ((shmaddr = shmat(shmid, 0, flag)) != (void *)-1) {
 		    is = (struct INSTANCE *)shmaddr;
 		    if (is->pid) {
@@ -708,6 +738,7 @@ void interact_with_daemon()
 					}
 				}
 				if (reset_stats) {
+					is->reset_flags = reset_flags;
 					if (kill(is->pid, SIGUSR1) != 0) // send signal to reset stats
 						Msg("Could not reset statistics of daemon process %d!",  is->pid);
 					else
