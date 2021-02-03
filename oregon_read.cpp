@@ -37,7 +37,7 @@
 #define PARANOID_NEEDS_BOTH_MESSAGES	0
 
 #define PACKAGE    "CC1101 Oregon read utility"
-#define VERSION_SW "1.51"
+#define VERSION_SW "1.52"
 
 #define OPTCHARS		"d::hobVr::Ktn:"
 #define ARG_o			1
