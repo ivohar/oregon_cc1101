@@ -37,7 +37,7 @@
 #define PARANOID_NEEDS_BOTH_MESSAGES	0
 
 #define PACKAGE    "CC1101 Oregon read utility"
-#define VERSION_SW "1.52"
+#define VERSION_SW "1.53"
 
 #define OPTCHARS		"d::hobVr::Ktn:"
 #define ARG_o			1
@@ -144,7 +144,7 @@ void Usage()
 	fprintf(stderr,  "\nUSAGE: %s ", program);
 	fprintf(stderr, "[ -o][ -b][ -V][ -r[flags]]");
 	fprintf(stderr, "[ -K][ -t [ -d[num]]][ -n[num]][ -h]");
-	fprintf(stderr, "\n\n%s, Version %s by Ivaylo Haratcherev\n", PACKAGE, VERSION_SW);
+	fprintf(stderr, "\n\n%s, Version %s by Ivaylo Haratcherev, 2021\n", PACKAGE, VERSION_SW);
 	fprintf(stderr, "Run without options or with -n (as root) to start the listening daemon.\n");
 	fprintf(stderr, "Options: \n");
 	fprintf(stderr, "         -o               show last Oregon data collected from daemon\n");
@@ -153,15 +153,15 @@ void Usage()
 	fprintf(stderr, "         -r[flags]        reset daemon statistics counters (needs root)\n");
 	fprintf(stderr, "                          optional flags in binary form indicate \n");
 	fprintf(stderr, "                          stats to clear (LSB to MSB):\n");
-	fprintf(stderr, "                             bit 0 - bad packets and errors count + all RSSI and LQI stats\n");
+	fprintf(stderr, "                             bit 0 - bad pkts and err count + all RSSI and LQI\n");
 	fprintf(stderr, "                             bit 1 - min/max time between good packets\n");
 	fprintf(stderr, "                             bit 2 - min/max RSSI\n");
 	fprintf(stderr, "                             bit 3 - min/max LQI\n");
 	fprintf(stderr, "                             bit 4 - max Temperature value variation\n");
 	fprintf(stderr, "         -K               terminate daemon instance (needs root)\n");
-	fprintf(stderr, "         -t               test mode - Rx Oregon data is displayed as received (needs root)\n");
+	fprintf(stderr, "         -t               test mode - show Rx Oregon data as received (root)\n");
     fprintf(stderr, "         -d[num]          optional debug level num (default 1) for test mode\n");
-    fprintf(stderr, "         -n[num]          optional data invalid timeout (default %d) - daemon only\n", OREGON_DATA_TIMEOUT_S);
+    fprintf(stderr, "         -n[num]          optional data invalid timeout (default %d) - dmn only\n", OREGON_DATA_TIMEOUT_S);
 	fprintf(stderr, "         -h               help (this text)\n");
 }
 
